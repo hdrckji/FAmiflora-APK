@@ -6,9 +6,14 @@
 import express from "express";
 import cors from "cors";
 import multer from "multer";
+import { readFileSync } from "node:fs";
 import Anthropic from "@anthropic-ai/sdk";
-import { initCache, getCached, setCached, countCached } from "./cache.js";
+import { initCache, getCached, setCached, countCached, getReco, setReco, allReco } from "./cache.js";
 import { PLANTS } from "./plants.js";
+import { tagBatch } from "./reco.js";
+
+// Liste des plantes en stock a etiqueter pour le conseiller (issue de l'export Becosoft).
+const RECO_PLANTS = JSON.parse(readFileSync(new URL("./reco_plants.json", import.meta.url), "utf8"));
 
 const app = express();
 app.use(cors());
@@ -138,6 +143,42 @@ async function runSeed(list, concurrency = 4) {
   console.log(`[seed] termine : ${seedState.generated} generees, ${seedState.skipped} deja en cache, ${seedState.errors} erreurs`);
 }
 
+// ---- Etiquetage conseiller (build-reco) ----------------------------------
+let recoState = { running: false, total: 0, done: 0, tagged: 0, skipped: 0, errors: 0 };
+
+async function runBuildReco(list, batchSize = 12, concurrency = 3) {
+  recoState = { running: true, total: list.length, done: 0, tagged: 0, skipped: 0, errors: 0 };
+  const todo = [];
+  for (const it of list) {
+    if (await getReco(it.id)) { recoState.skipped++; recoState.done++; }
+    else todo.push(it);
+  }
+  const batches = [];
+  for (let i = 0; i < todo.length; i += batchSize) batches.push(todo.slice(i, i + batchSize));
+  let bi = 0;
+  async function worker() {
+    while (bi < batches.length) {
+      const batch = batches[bi++];
+      try {
+        const tagged = await tagBatch(client, SEED_MODEL, batch);
+        const byId = new Map(tagged.map((t) => [t.id, t]));
+        for (const it of batch) {
+          const t = byId.get(it.id);
+          if (t) { await setReco(it.id, t); recoState.tagged++; }
+          else recoState.errors++;
+          recoState.done++;
+        }
+      } catch (e) {
+        recoState.errors += batch.length; recoState.done += batch.length;
+        console.error("[reco] lot:", e.message);
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, worker));
+  recoState.running = false;
+  console.log(`[reco] termine : ${recoState.tagged} tagues, ${recoState.skipped} deja, ${recoState.errors} erreurs`);
+}
+
 // ---- Routes ---------------------------------------------------------------
 app.get("/", (req, res) => res.json({ service: "famiflora-plant-relay", ok: true }));
 
@@ -150,6 +191,7 @@ app.get("/health", async (req, res) => {
     fichesEnCache: await countCached().catch(() => null),
     plantesConnues: PLANTS.length,
     seed: seedState,
+    conseiller: { plantesAEtiqueter: RECO_PLANTS.length, build: recoState },
   });
 });
 
@@ -195,6 +237,35 @@ function seedHandler(req, res) {
 app.get("/admin/seed", seedHandler);
 app.post("/admin/seed", seedHandler);
 app.get("/admin/seed-status", (req, res) => res.json(seedState));
+
+// Etiquette les plantes du conseiller (arriere-plan). Protege par SEED_TOKEN.
+function buildRecoHandler(req, res) {
+  const token = (req.query.token || (req.body && req.body.token) || "").toString();
+  if (!SEED_TOKEN) return res.status(403).json({ error: "SEED_TOKEN non configure." });
+  if (token !== SEED_TOKEN) return res.status(401).json({ error: "Token invalide." });
+  if (recoState.running) return res.json({ status: "deja en cours", state: recoState });
+  runBuildReco(RECO_PLANTS).catch((e) => console.error("[reco] fatal:", e.message));
+  res.json({ status: "etiquetage demarre", total: RECO_PLANTS.length, model: SEED_MODEL, suivi: "/admin/reco-status" });
+}
+app.get("/admin/build-reco", buildRecoHandler);
+app.post("/admin/build-reco", buildRecoHandler);
+app.get("/admin/reco-status", (req, res) => res.json(recoState));
+
+// Base du conseiller servie a l'app : plantes en stock (reco_plants) x taguees x vraies plantes.
+// L'app la telecharge une fois, la met en cache, et filtre en local (aucun appel IA au runtime).
+app.get("/recommender-db", async (req, res) => {
+  try {
+    const dispo = new Set(RECO_PLANTS.map((p) => p.id));
+    const all = await allReco();
+    const plantes = all
+      .filter((x) => dispo.has(x.id) && x.data && x.data.estPlante)
+      .map((x) => x.data);
+    res.json({ nb: plantes.length, plantes });
+  } catch (e) {
+    console.error("[recommender-db]", e.message);
+    res.status(500).json({ error: "indisponible" });
+  }
+});
 
 // POST /identify  (multipart form-data, champ "images")  -> proxifie Pl@ntNet
 app.post("/identify", upload.single("images"), async (req, res) => {

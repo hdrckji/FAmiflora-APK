@@ -50,6 +50,15 @@ Au depart le cache est vide : chaque plante identifiee doit etre generee par Cla
 
 C'est idempotent : relancer `/admin/seed` ignore les fiches deja generees. Pour ajouter des especes, completer `plants.js` et relancer le seed. Cout du pre-remplissage : quelques euros, une seule fois.
 
+## Conseiller de plantes (base d'attributs)
+
+Le conseiller de l'app recommande une plante selon des criteres (usage, exposition, arrosage, vivace, feuillage, gel). Il filtre **en local** une base d'attributs generee **une seule fois** ici.
+
+- `reco_plants.json` : liste des plantes en stock (issue de l'export Becosoft, ~955), sans quantites.
+- `POST/GET /admin/build-reco?token=<SEED_TOKEN>` : etiquette chaque plante via Claude (par lots, arriere-plan) -> attributs (milieu, exposition, arrosage, cycle, feuillage, gelResistant, usages, hauteur, saison, couleurs, argument). Suivi : `/admin/reco-status` ou `/health`.
+- `GET /recommender-db` : la base servie a l'app (plantes en stock x taguees). L'app la telecharge une fois et filtre en local -> **aucun appel IA au runtime**, aucune quantite de stock exposee.
+- **Mise a jour du stock** : remplacer `reco_plants.json` par un nouvel export puis relancer `/admin/build-reco` (ne re-etiquette que les nouvelles). `/recommender-db` ne sert que les plantes presentes dans la liste courante.
+
 ## Developpement local
 
 ```bash
