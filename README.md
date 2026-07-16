@@ -26,7 +26,7 @@ Reponse `/care` : `{ "cached": true|false, "sheet": { ...fiche... } }`.
 4. Dans **Variables** du service, ajouter :
    - `ANTHROPIC_API_KEY` = ta cle Claude (console.anthropic.com)
    - `PLANTNET_KEY` = ta cle Pl@ntNet (si tu utilises `/identify`)
-   - `CLAUDE_MODEL` = `claude-opus-4-8` (ou `claude-haiku-4-5` pour reduire le cout)
+   - `CLAUDE_MODEL` = `claude-sonnet-5` (defaut ; `claude-opus-4-8` pour la qualite max, `claude-haiku-4-5` pour le cout le plus bas)
 5. Railway build et deploie tout seul (`npm start`). Recupere l'URL publique (ex. `https://famiflora-xxxx.up.railway.app`).
 6. Tester : `https://<ton-url>/health`.
 
@@ -48,4 +48,4 @@ Sans `DATABASE_URL`, le cache est en memoire (repart a zero au redemarrage) — 
 
 ## Cout & modele
 
-Une fiche generee coute quelques fractions de centime, **une seule fois par espece** grace au cache. `claude-opus-4-8` par defaut (qualite maximale) ; `claude-haiku-4-5` divise le cout si besoin.
+Une fiche generee coute quelques fractions de centime, **une seule fois par espece** grace au cache. `claude-sonnet-5` par defaut (tres bon rapport qualite/cout pour des fiches factuelles) ; `claude-opus-4-8` pour la qualite maximale ; `claude-haiku-4-5` pour le cout le plus bas.

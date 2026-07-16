@@ -14,7 +14,7 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 const client = new Anthropic(); // lit ANTHROPIC_API_KEY
-const MODEL = process.env.CLAUDE_MODEL || "claude-opus-4-8";
+const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
 const PLANTNET_KEY = process.env.PLANTNET_KEY || "";
 const upload = multer({ limits: { fileSize: 8 * 1024 * 1024 } });
 
