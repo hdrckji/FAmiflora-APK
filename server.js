@@ -187,6 +187,8 @@ app.get("/health", async (req, res) => {
     ok: true,
     model: MODEL,
     seedModel: SEED_MODEL,
+    claudeKey: process.env.ANTHROPIC_API_KEY ? "configure" : "absent",
+    seedToken: SEED_TOKEN ? "configure" : "absent",
     plantnet: PLANTNET_KEY ? "configure" : "absent",
     fichesEnCache: await countCached().catch(() => null),
     plantesConnues: PLANTS.length,
