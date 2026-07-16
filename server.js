@@ -8,13 +8,16 @@ import cors from "cors";
 import multer from "multer";
 import Anthropic from "@anthropic-ai/sdk";
 import { initCache, getCached, setCached, countCached } from "./cache.js";
+import { PLANTS } from "./plants.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 const client = new Anthropic(); // lit ANTHROPIC_API_KEY
-const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
+const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";       // generations a la volee
+const SEED_MODEL = process.env.SEED_MODEL || MODEL;               // pre-remplissage (qualite)
+const SEED_TOKEN = process.env.SEED_TOKEN || "";                  // protege /admin/seed
 const PLANTNET_KEY = process.env.PLANTNET_KEY || "";
 const upload = multer({ limits: { fileSize: 8 * 1024 * 1024 } });
 
@@ -83,14 +86,14 @@ function normalizeKey(sci) {
   return (sci || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-async function generateCareSheet({ sci, common, family }) {
+async function generateCareSheet({ sci, common, family }, model = MODEL) {
   const parts = [`Espece: ${sci || "inconnue"}`];
   if (common) parts.push(`Nom commun repere: ${common}`);
   if (family) parts.push(`Famille: ${family}`);
   const userPrompt = parts.join("\n") + "\n\nProduis la fiche d'entretien.";
 
   const response = await client.messages.create({
-    model: MODEL,
+    model,
     max_tokens: 2000,
     system: SYSTEM_PROMPT,
     output_config: { format: { type: "json_schema", schema: CARE_SCHEMA } },
@@ -105,6 +108,36 @@ async function generateCareSheet({ sci, common, family }) {
   return JSON.parse(text);
 }
 
+// ---- Pre-remplissage (seed) ----------------------------------------------
+let seedState = { running: false, total: 0, done: 0, generated: 0, skipped: 0, errors: 0 };
+
+async function runSeed(list, concurrency = 4) {
+  seedState = { running: true, total: list.length, done: 0, generated: 0, skipped: 0, errors: 0 };
+  let i = 0;
+  async function worker() {
+    while (i < list.length) {
+      const item = list[i++];
+      const key = normalizeKey(item.sci);
+      try {
+        const existing = await getCached(key);
+        if (existing) { seedState.skipped++; }
+        else {
+          const sheet = await generateCareSheet(item, SEED_MODEL);
+          await setCached(key, sheet);
+          seedState.generated++;
+        }
+      } catch (e) {
+        seedState.errors++;
+        console.error("[seed] " + item.sci + " :", e.message);
+      }
+      seedState.done++;
+    }
+  }
+  await Promise.all(Array.from({ length: concurrency }, worker));
+  seedState.running = false;
+  console.log(`[seed] termine : ${seedState.generated} generees, ${seedState.skipped} deja en cache, ${seedState.errors} erreurs`);
+}
+
 // ---- Routes ---------------------------------------------------------------
 app.get("/", (req, res) => res.json({ service: "famiflora-plant-relay", ok: true }));
 
@@ -112,8 +145,11 @@ app.get("/health", async (req, res) => {
   res.json({
     ok: true,
     model: MODEL,
+    seedModel: SEED_MODEL,
     plantnet: PLANTNET_KEY ? "configure" : "absent",
     fichesEnCache: await countCached().catch(() => null),
+    plantesConnues: PLANTS.length,
+    seed: seedState,
   });
 });
 
@@ -144,6 +180,21 @@ async function careHandler(req, res) {
 }
 app.get("/care", careHandler);
 app.post("/care", careHandler);
+
+// Pre-remplit le cache avec la liste des plantes courantes (arriere-plan).
+// Protege par SEED_TOKEN. Suivre l'avancement via /admin/seed-status ou /health.
+function seedHandler(req, res) {
+  const token = (req.query.token || (req.body && req.body.token) || "").toString();
+  if (!SEED_TOKEN) return res.status(403).json({ error: "SEED_TOKEN non configure sur le serveur." });
+  if (token !== SEED_TOKEN) return res.status(401).json({ error: "Token invalide." });
+  if (seedState.running) return res.json({ status: "deja en cours", state: seedState });
+  const list = (req.body && Array.isArray(req.body.plants) && req.body.plants.length) ? req.body.plants : PLANTS;
+  runSeed(list, 4).catch((e) => console.error("[seed] fatal:", e.message));
+  res.json({ status: "pre-remplissage demarre", total: list.length, model: SEED_MODEL, suivi: "/admin/seed-status" });
+}
+app.get("/admin/seed", seedHandler);
+app.post("/admin/seed", seedHandler);
+app.get("/admin/seed-status", (req, res) => res.json(seedState));
 
 // POST /identify  (multipart form-data, champ "images")  -> proxifie Pl@ntNet
 app.post("/identify", upload.single("images"), async (req, res) => {

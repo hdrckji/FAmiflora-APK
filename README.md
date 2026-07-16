@@ -35,6 +35,21 @@ Reponse `/care` : `{ "cached": true|false, "sheet": { ...fiche... } }`.
 - **Identification** : remplacer l'appel direct a `my-api.plantnet.org` par un POST vers `https://<ton-url>/identify` (la cle Pl@ntNet disparait de l'app).
 - **Conseils** : apres identification, appeler `https://<ton-url>/care?name=<nomScientifique>` et afficher la fiche riche renvoyee. On garde en local (localStorage) les fiches deja recues pour un affichage instantane hors-ligne au 2e passage.
 
+## Pre-remplissage du cache (rendre les conseils instantanes)
+
+Au depart le cache est vide : chaque plante identifiee doit etre generee par Claude (quelques secondes d'attente). Pour eviter ca, on **pre-remplit** le cache avec la liste des plantes courantes (`plants.js`, ~300 especes). Ensuite ces plantes s'affichent **instantanement**, sans appel API ; Claude n'est sollicite que pour une espece rare pas encore connue.
+
+**Une seule fois, apres deploiement :**
+
+1. Definir la variable `SEED_TOKEN` (une chaine secrete, ex. `famiflora-2026-xyz`) dans les Variables Railway. Optionnel : `SEED_MODEL=claude-sonnet-5` (qualite des fiches).
+2. Ouvrir dans le navigateur :
+   `https://<ton-url>/admin/seed?token=<ton SEED_TOKEN>`
+   -> repond `pre-remplissage demarre`. La generation tourne en arriere-plan.
+3. Suivre l'avancement : `https://<ton-url>/admin/seed-status`
+   (ou `/health`, champ `fichesEnCache` qui monte jusqu'a ~300).
+
+C'est idempotent : relancer `/admin/seed` ignore les fiches deja generees. Pour ajouter des especes, completer `plants.js` et relancer le seed. Cout du pre-remplissage : quelques euros, une seule fois.
+
 ## Developpement local
 
 ```bash
