@@ -1,0 +1,20 @@
+{
+  "name": "famiflora-plant-relay",
+  "version": "1.0.0",
+  "description": "Relais Famiflora : genere des fiches d'entretien de plantes (Claude) avec cache, et proxifie l'identification Pl@ntNet en gardant les cles cote serveur.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.13.1"
+  }
+}
